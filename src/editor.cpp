@@ -1,5 +1,6 @@
 #include <editor.h>
 #include <eft.h>
+#include <ui/ImGuiUtil.h>
 
 #include <new>
 #include <string>
@@ -20,15 +21,14 @@
 #include <gpu/rio_RenderState.h>
 #include <math/rio_Matrix.h>
 
-#include <imgui.h>
-#include <imgui_internal.h>
-#include <imgui_impl_glfw.h>
-#include <imgui_impl_opengl3.h>
-
 #if RIO_IS_WIN
     #include <file.hpp>
     #include <globals.hpp>
 #endif // RIO_IS_WIN
+
+#include <rio.h>
+
+#include <imgui_internal.h>
 
 static constexpr f32 cScale = 4.0f;
 
@@ -69,8 +69,12 @@ static inline bool DeInitEftSystem()
 
 Editor::Editor()
     : rio::ITask("NSMBU Editor")
-    , mpViewportTexture(nullptr)
-    , mpViewportDepthTexture(nullptr)
+    , mViewPos{ 0.0f, 0.0f }
+    , mViewResized(false)
+    , mViewHovered(false)
+    , mViewFocused(false)
+    , mpColorTexture(nullptr)
+    , mpDepthTexture(nullptr)
 {
 }
 
@@ -109,40 +113,8 @@ void Editor::calcEftSystem_() const
 
 void Editor::drawEftSystem_(const nw::math::MTX44& proj, const nw::math::MTX34& view, const nw::math::VEC3& camPos, f32 zNear, f32 zFar)
 {
-    // I want to see if we can get the current method working
-    // or we can just ignore that if you want
-    // Which would it be?
-
-    mpViewportTexture = new rio::Texture2D(rio::TEXTURE_FORMAT_R8_G8_B8_A8_UNORM, mViewportWidth, mViewportHeight, 1);
-    mpViewportDepthTexture = new rio::Texture2D(rio::DEPTH_TEXTURE_FORMAT_R32_FLOAT, mViewportWidth, mViewportHeight, 1);
-
-    glCopyImageSubData(
-        rio::Window::instance()->getWindowColorBufferTexture(),
-        GL_TEXTURE_2D,
-        0,
-        mViewportX, mViewportY,
-        0,
-        mpViewportTexture->getNativeTextureHandle(),
-        GL_TEXTURE_2D,
-        0, 0, 0, 0,
-        mViewportWidth, mViewportHeight, 1
-    );
-
-    rio::Window::instance()->updateDepthBufferTexture();
-    glCopyImageSubData(
-        rio::Window::instance()->getWindowDepthBufferTexture(),
-        GL_TEXTURE_2D,
-        0,
-        mViewportX, mViewportY,
-        0,
-        mpViewportDepthTexture->getNativeTextureHandle(),
-        GL_TEXTURE_2D,
-        0, 0, 0, 0,
-        mViewportWidth, mViewportHeight, 1
-    );
-
-    g_EftSystem->GetRenderer()->SetFrameBufferTexture(mpViewportTexture->getNativeTextureHandle());
-    g_EftSystem->GetRenderer()->SetDepthTexture(mpViewportDepthTexture->getNativeTextureHandle());
+    g_EftSystem->GetRenderer()->SetFrameBufferTexture(mpColorTexture->getNativeTextureHandle());
+    g_EftSystem->GetRenderer()->SetDepthTexture(mpDepthTexture->getNativeTextureHandle());
 
     rio::Shader::setShaderMode(rio::Shader::MODE_UNIFORM_BLOCK);
 
@@ -158,9 +130,6 @@ void Editor::drawEftSystem_(const nw::math::MTX44& proj, const nw::math::MTX34& 
     g_EftSystem->EndRender();
 
     rio::Shader::setShaderMode(rio::Shader::MODE_UNIFORM_REGISTER);
-
-    delete mpViewportTexture;
-    delete mpViewportDepthTexture;
 }
 
 void Editor::calcEftSystemNextEmitterSet_()
@@ -176,10 +145,7 @@ void Editor::calcEftSystemNextEmitterSet_()
         mTimer = 0;
 
         if (nextEmitterSetId == g_EftSystem->GetResource(0)->GetNumEmitterSet())
-        {
-            mIsRunning = false;
             return;
-        }
 
         [[maybe_unused]] bool created = g_EftSystem->CreateEmitterSetID(&g_EftHandle, nw::math::MTX34::Identity(), nextEmitterSetId);
         RIO_ASSERT(created);
@@ -196,57 +162,127 @@ void Editor::calcEftSystemNextEmitterSet_()
     g_EftSystem->Calc(true);
 }
 
-void Editor::initUi_()
-{
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    ImGui::StyleColorsDark();
-    ImGui_ImplGlfw_InitForOpenGL(rio::Window::instance()->getNativeWindow().getGLFWwindow(), true);
-    ImGui_ImplOpenGL3_Init("#version 400");
-}
-
 void Editor::calcUi_()
 {
-    ImGui_ImplOpenGL3_NewFrame();
-    ImGui_ImplGlfw_NewFrame();
-    ImGui::NewFrame();
     ImGuiID id = ImGui::DockSpaceOverViewport(nullptr, ImGuiDockNodeFlags_NoDockingInCentralNode | ImGuiDockNodeFlags_PassthruCentralNode, nullptr);
     ImGuiDockNode* node = ImGui::DockBuilderGetCentralNode(id);
-    mViewportWidth = node->Size.x;
-    mViewportHeight = node->Size.y;
-    mViewportX = node->Pos.x;
-    mViewportY = node->Pos.y;
 
-    mViewportProjection.setTBLR(mViewportHeight * 0.5f, -mViewportHeight * 0.5f, -mViewportWidth * 0.5f, mViewportWidth * 0.5f);
+    ImGuiWindowClass centralAlways = {};
+    centralAlways.DockNodeFlagsOverrideSet |= ImGuiDockNodeFlags_NoTabBar | ImGuiDockNodeFlags_NoDockingOverMe;
+    ImGui::SetNextWindowClass(&centralAlways);
+    ImGui::SetNextWindowDockID(node->ID, ImGuiCond_Always);
 
-    if (ImGui::Begin("Info"))
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, { 0.0f, 0.0f });
+    bool ret = ImGui::Begin("EditorView", nullptr, ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse);
+    ImGui::PopStyleVar();
+    if (ret)
     {
-        nw::eft::Resource* const resource = g_EftSystem->GetResource(0);
-        nw::eft::EmitterSet* const emitter_set = g_EftHandle.GetEmitterSet();
+        ImVec2 pos = ImGui::GetCursorScreenPos();
+        const ImVec2& size = ImGui::GetContentRegionAvail();
 
-        ImGui::Text("Emitter Set #%i: %s", emitter_set->GetEmitterSetID(), resource->GetEmitterSetName(emitter_set->GetEmitterSetID()));
-        ImGui::Text("mViewportX %f", mViewportX);
-        ImGui::Text("mViewportY %f", mViewportY);
-        ImGui::Text("mViewportWidth %f", mViewportWidth);
-        ImGui::Text("mViewportHeight %f", mViewportHeight);
+        s32 width = std::max<s32>(1, size.x);
+        s32 height = std::max<s32>(1, size.y);
+        if (mViewSize.x != width || mViewSize.y != height)
+        {
+            mViewSize.x = width;
+            mViewSize.y = height;
+            mViewResized = true;
+        }
+
+        ImTextureID texture_id = nullptr;
+
+#if RIO_IS_CAFE
+        mImGuiGX2Texture.Texture = const_cast<GX2Texture*>(mpColorTexture->getNativeTextureHandle());
+        texture_id = &mImGuiGX2Texture;
+#elif RIO_IS_WIN
+        texture_id = (void*)(mpColorTexture->getNativeTextureHandle());
+#endif
+
+        ImGui::Image(texture_id, size);
+
+        bool moved = false;
+        if (mViewPos.x != pos.x || mViewPos.y != pos.y)
+        {
+            mViewPos.x = pos.x;
+            mViewPos.y = pos.y;
+            moved = true;
+        }
+
+        mViewHovered = ImGui::IsWindowHovered();
+        mViewFocused = ImGui::IsWindowFocused() && !(moved || mViewResized);
+
+        if (ImGui::Begin("Info"))
+        {
+            nw::eft::Resource* const resource = g_EftSystem->GetResource(0);
+            nw::eft::EmitterSet* const emitter_set = g_EftHandle.GetEmitterSet();
+
+            ImGui::Text("Emitter Set #%i: %s", emitter_set->GetEmitterSetID(), resource->GetEmitterSetName(emitter_set->GetEmitterSetID()));
+        }
+        ImGui::End();
     }
     ImGui::End();
+
+  //processMouseInput_();
+  //processKeyboardInput_();
 }
 
-void Editor::drawUi_()
+void Editor::resizeView_(s32 width, s32 height)
 {
-    ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#if RIO_IS_CAFE
+    GX2DrawDone();
+#elif RIO_IS_WIN
+    RIO_GL_CALL(glFinish());
+#endif
+
+    const f32 w_half = width  * 0.5f;
+    const f32 h_half = height * 0.5f;
+
+    mProjection.setTBLR(
+         h_half,    // Top
+        -h_half,    // Bottom
+        -w_half,    // Left
+         w_half     // Right
+    );
+
+    createRenderBuffer_(width, height);
 }
 
-void Editor::terminateUi_()
+void Editor::createRenderBuffer_(s32 width, s32 height)
 {
-    ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
+    if (mpColorTexture)
+    {
+        delete mpColorTexture;
+        mpColorTexture = nullptr;
+    }
+
+    if (mpDepthTexture)
+    {
+        delete mpDepthTexture;
+        mpDepthTexture = nullptr;
+    }
+
+    mpColorTexture = new rio::Texture2D(rio::TEXTURE_FORMAT_R8_G8_B8_A8_UNORM, width, height, 1);
+    mpDepthTexture = new rio::Texture2D(rio::DEPTH_TEXTURE_FORMAT_R32_FLOAT, width, height, 1);
+
+    mRenderBuffer.setSize(width, height);
+    mColorTarget.linkTexture2D(*mpColorTexture);
+    mDepthTarget.linkTexture2D(*mpDepthTexture);
+    mRenderBuffer.clear(rio::RenderBuffer::CLEAR_FLAG_DEPTH);
 }
+
+#if RIO_IS_WIN
+
+void Editor::resize_(s32 width, s32 height)
+{
+    ImGuiUtil::setDisplaySize(width, height);
+}
+
+void Editor::onResizeCallback_(s32 width, s32 height)
+{
+    static_cast<Editor*>(rio::sRootTask)->resize_(width, height);
+}
+
+#endif // RIO_IS_WIN
 
 void Editor::prepare_()
 {
@@ -254,31 +290,55 @@ void Editor::prepare_()
     RIO_LOG("My directory is %s\n", g_CWD.c_str());
 #endif // RIO_IS_WIN
 
-    initEftSystem_();
-    initUi_();
-    calcUi_();
-    drawUi_();
+#if RIO_IS_WIN
+    rio::Window::instance()->setOnResizeCallback(&Editor::onResizeCallback_);
+#endif // RIO_IS_WIN
 
-    mIsRunning = true;
+    s32 width = rio::Window::instance()->getWidth();
+    s32 height = rio::Window::instance()->getHeight();
+
+    ImGuiUtil::initialize(width, height);
+
+    mViewSize.x = width;
+    mViewSize.y = height;
+
+    const f32 w_half = width  * 0.5f;
+    const f32 h_half = height * 0.5f;
+
+    mProjection.set(
+        -1000.0f,   // Near
+         1000.0f,   // Far
+         h_half,    // Top
+        -h_half,    // Bottom
+        -w_half,    // Left
+         w_half     // Right
+    );
+
+    mRenderBuffer.setRenderTargetColor(&mColorTarget);
+    mRenderBuffer.setRenderTargetDepth(&mDepthTarget);
+
+    createRenderBuffer_(width, height);
+
+    initEftSystem_();
 
     // Foreground layer
     {
         rio::lyr::Layer* const layer = const_cast<rio::lyr::Layer*>(rio::lyr::Layer::peelIterator(rio::lyr::Renderer::instance()->addLayer("Foreground", 0)));
-        layer->setProjection(&mViewportProjection);
 
         layer->addRenderStep("Foreground");
         layer->addDrawMethod(0, { this, &Editor::renderForeground });
+        layer->setProjection(&mProjection);
     }
     // Background Layer
     {
         rio::lyr::Layer* const layer = const_cast<rio::lyr::Layer*>(rio::lyr::Layer::peelIterator(rio::lyr::Renderer::instance()->addLayer("Background", 1)));
-        layer->setProjection(&mViewportProjection);
 
         layer->setClearColor({ 0.25f, 0.25f, 0.25f, 1.0f });
         layer->setClearDepth();
 
         layer->addRenderStep("Background");
         layer->addDrawMethod(0, { this, &Editor::renderBackground });
+        layer->setProjection(&mProjection);
     }
 
     rio::Matrix34f mtx;
@@ -288,19 +348,22 @@ void Editor::prepare_()
 
 void Editor::calc_()
 {
-    if (!mIsRunning)
-        return;
+    ImGuiUtil::newFrame();
+
+    calcUi_();
+
+    if (mViewResized)
+    {
+        resizeView_(mViewSize.x, mViewSize.y);
+        mViewResized = false;
+    }
 
     calcEftSystem_();
     calcEftSystemNextEmitterSet_();
-
-    calcUi_();
 }
 
 void Editor::exit_()
 {
-    mIsRunning = false;
-
     if (g_EftHandle.IsValid())
         g_EftHandle.GetEmitterSet()->Kill();
 
@@ -308,13 +371,48 @@ void Editor::exit_()
     FreeContentFile(mPtclFile);
     DeInitEftSystem();
 
-    terminateUi_();
+    if (mpColorTexture)
+    {
+        delete mpColorTexture;
+        mpColorTexture = nullptr;
+    }
+
+    if (mpDepthTexture)
+    {
+        delete mpDepthTexture;
+        mpDepthTexture = nullptr;
+    }
+
+    ImGuiUtil::shutdown();
+
+#if RIO_IS_WIN
+    rio::Window::instance()->setOnResizeCallback(nullptr);
+#endif // RIO_IS_WIN
+}
+
+void Editor::bindViewRenderBuffer_()
+{
+    mpColorTexture->setCompMap(0x00010203);
+    mRenderBuffer.bind();
+}
+
+void Editor::unbindViewRenderBuffer_()
+{
+    mRenderBuffer.getRenderTargetColor()->invalidateGPUCache();
+    mpColorTexture->setCompMap(0x00010205);
+
+    rio::Window::instance()->makeContextCurrent();
+
+    u32 width = rio::Window::instance()->getWidth();
+    u32 height = rio::Window::instance()->getHeight();
+
+    rio::Graphics::setViewport(0, 0, width, height);
+    rio::Graphics::setScissor(0, 0, width, height);
 }
 
 void Editor::renderForeground(const rio::lyr::DrawInfo& drawInfo)
 {
-    if (!mIsRunning)
-        return;
+    bindViewRenderBuffer_();
 
     rio::RenderState render_state;
     render_state.setDepthTestEnable(false);
@@ -325,8 +423,6 @@ void Editor::renderForeground(const rio::lyr::DrawInfo& drawInfo)
     const rio::lyr::Layer& layer = drawInfo.parent_layer;
     const rio::OrthoProjection* const proj = static_cast<const rio::OrthoProjection*>(layer.projection());
 
-    rio::Graphics::setViewport(mViewportX, mViewportY, mViewportWidth, mViewportHeight);
-    rio::Graphics::setScissor(mViewportX, mViewportY, mViewportWidth, mViewportHeight);
     drawEftSystem_(
         reinterpret_cast<const nw::math::MTX44&>(proj->getMatrix()),
         nw::math::MTX34::Identity(),
@@ -335,15 +431,24 @@ void Editor::renderForeground(const rio::lyr::DrawInfo& drawInfo)
         proj->getFar()
     );
 
-    rio::Graphics::setViewport(0, 0, rio::Window::instance()->getWidth(), rio::Window::instance()->getHeight());
-    rio::Graphics::setScissor(0, 0, rio::Window::instance()->getWidth(), rio::Window::instance()->getHeight());
-    drawUi_();
+    unbindViewRenderBuffer_();
+
+    ImGuiUtil::render();
 }
 
 void Editor::renderBackground(const rio::lyr::DrawInfo& drawInfo)
 {
-    if (!mIsRunning)
-        return;
+    mpColorTexture->setCompMap(0x00010203);
+    mRenderBuffer.clear(
+        rio::RenderBuffer::CLEAR_FLAG_COLOR_DEPTH,
+        {
+            119 / 255.f,
+            136 / 255.f,
+            153 / 255.f,
+            1.0f
+        }
+    );
+    bindViewRenderBuffer_();
 
     rio::RenderState render_state;
     render_state.setCullingMode(rio::Graphics::CULLING_MODE_NONE);
@@ -360,8 +465,6 @@ void Editor::renderBackground(const rio::lyr::DrawInfo& drawInfo)
 
     primitive_renderer->setModelMatrix(mtx);
 
-    rio::Graphics::setViewport(mViewportX, mViewportY, mViewportWidth, mViewportHeight);
-    rio::Graphics::setScissor(mViewportX, mViewportY, mViewportWidth, mViewportHeight);
     primitive_renderer->begin();
     {
         primitive_renderer->drawSphere8x16(
@@ -372,8 +475,8 @@ void Editor::renderBackground(const rio::lyr::DrawInfo& drawInfo)
         );
     }
     primitive_renderer->end();
-    rio::Graphics::setViewport(0, 0, rio::Window::instance()->getWidth(), rio::Window::instance()->getHeight());
-    rio::Graphics::setScissor(0, 0, rio::Window::instance()->getWidth(), rio::Window::instance()->getHeight());
+
+    unbindViewRenderBuffer_();
 }
 
 bool ReadContentFile(const char* filename, u8** out_data, u32* out_size)
