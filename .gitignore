@@ -46,3 +46,6 @@ Cafe/Cache/*.frag
 Cafe/Cache/*.vert
 misc/
 *.ptcl
+vendor/
+.vscode/
+Eset.param
