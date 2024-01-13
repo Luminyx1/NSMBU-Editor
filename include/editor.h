@@ -21,11 +21,12 @@ private:
     void resizeView_(s32 width, s32 height);
 
     void initEftSystem_();
-    void calcEftSystem_() const;
+    void calcEftSystem_();
     void drawEftSystem_(const nw::math::MTX44& proj, const nw::math::MTX34& view, const nw::math::VEC3& camPos, f32 zNear, f32 zFar);
-    void calcEftSystemNextEmitterSet_();
+    void changeEftEmitterSet_();
 
-    void calcUi_();
+    void calcViewUi_();
+    void drawUiEmitterSelection_();
 
     void bindViewRenderBuffer_();
     void unbindViewRenderBuffer_();
@@ -40,7 +41,8 @@ private:
     void calc_() override;
 
     u8*                     mPtclFile;
-    u32                     mTimer;
+    s32                     mCurrentEmitterSet;
+    bool                    mLoopEmitterSet;
     rio::BaseVec2f          mViewPos;
     rio::BaseVec2i          mViewSize;
     rio::OrthoProjection    mProjection;

@@ -69,6 +69,7 @@ static inline bool DeInitEftSystem()
 
 Editor::Editor()
     : rio::ITask("NSMBU Editor")
+    , mCurrentEmitterSet(0)
     , mViewPos{ 0.0f, 0.0f }
     , mViewResized(false)
     , mViewHovered(false)
@@ -98,17 +99,26 @@ void Editor::initEftSystem_()
     RIO_ASSERT(created);
 
     RIO_LOG("Current EmitterSet: %s\n", g_EftSystem->GetResource(0)->GetEmitterSetName(g_EftHandle.GetEmitterSet()->GetEmitterSetID()));
-
-    mTimer = 0;
 }
 
-void Editor::calcEftSystem_() const
+void Editor::calcEftSystem_()
 {
     g_EftSystem->BeginFrame();
     g_EftSystem->SwapDoubleBuffer();
 
     g_EftSystem->CalcEmitter(0);
     g_EftSystem->CalcParticle(true);
+
+    // --------- All modifications happen here ---------
+
+    if (mLoopEmitterSet && !g_EftHandle.GetEmitterSet()->IsAlive())
+    {
+        changeEftEmitterSet_();
+    }
+
+    // -------------------------------------------------
+
+    g_EftSystem->Calc(true);
 }
 
 void Editor::drawEftSystem_(const nw::math::MTX44& proj, const nw::math::MTX34& view, const nw::math::VEC3& camPos, f32 zNear, f32 zFar)
@@ -132,37 +142,19 @@ void Editor::drawEftSystem_(const nw::math::MTX44& proj, const nw::math::MTX34& 
     rio::Shader::setShaderMode(rio::Shader::MODE_UNIFORM_REGISTER);
 }
 
-void Editor::calcEftSystemNextEmitterSet_()
+void Editor::changeEftEmitterSet_()
 {
-    mTimer += 1;
+    g_EftHandle.GetEmitterSet()->Kill();
 
-    if (!g_EftHandle.GetEmitterSet()->IsAlive())
-    {
-        s32 nextEmitterSetId = g_EftHandle.GetEmitterSet()->GetEmitterSetID() + 1;
-        RIO_LOG("Next emitterSet id: %d\n", nextEmitterSetId);
+    [[maybe_unused]] bool created = g_EftSystem->CreateEmitterSetID(&g_EftHandle, nw::math::MTX34::Identity(), mCurrentEmitterSet);
+    RIO_ASSERT(created);
 
-        g_EftHandle.GetEmitterSet()->Kill();
-        mTimer = 0;
-
-        if (nextEmitterSetId == g_EftSystem->GetResource(0)->GetNumEmitterSet())
-            return;
-
-        [[maybe_unused]] bool created = g_EftSystem->CreateEmitterSetID(&g_EftHandle, nw::math::MTX34::Identity(), nextEmitterSetId);
-        RIO_ASSERT(created);
-
-        rio::Matrix34f mtx;
-        mtx.makeS({ cScale * 1.5f, cScale * 1.5f, cScale });
-        g_EftHandle.GetEmitterSet()->SetMtx(reinterpret_cast<const nw::math::MTX34&>(mtx.a[0]));
-    }
-
-    if (mTimer == 5*60) // 5 seconds or effect is over
-        g_EftHandle.GetEmitterSet()->Fade();
-
-    // IIRC This is used to profile performance
-    g_EftSystem->Calc(true);
+    rio::Matrix34f mtx;
+    mtx.makeS({ cScale * 1.5f, cScale * 1.5f, cScale });
+    g_EftHandle.GetEmitterSet()->SetMtx(reinterpret_cast<const nw::math::MTX34&>(mtx.a[0]));
 }
 
-void Editor::calcUi_()
+void Editor::calcViewUi_()
 {
     ImGuiID id = ImGui::DockSpaceOverViewport(nullptr, ImGuiDockNodeFlags_NoDockingInCentralNode | ImGuiDockNodeFlags_PassthruCentralNode, nullptr);
     ImGuiDockNode* node = ImGui::DockBuilderGetCentralNode(id);
@@ -210,20 +202,48 @@ void Editor::calcUi_()
 
         mViewHovered = ImGui::IsWindowHovered();
         mViewFocused = ImGui::IsWindowFocused() && !(moved || mViewResized);
-
-        if (ImGui::Begin("Info"))
-        {
-            nw::eft::Resource* const resource = g_EftSystem->GetResource(0);
-            nw::eft::EmitterSet* const emitter_set = g_EftHandle.GetEmitterSet();
-
-            ImGui::Text("Emitter Set #%i: %s", emitter_set->GetEmitterSetID(), resource->GetEmitterSetName(emitter_set->GetEmitterSetID()));
-        }
-        ImGui::End();
     }
     ImGui::End();
 
   //processMouseInput_();
   //processKeyboardInput_();
+}
+
+void Editor::drawUiEmitterSelection_()
+{
+    if (ImGui::Begin("EmitterSet Selection"))
+    {
+        nw::eft::Resource* resource = g_EftSystem->GetResource(0);
+        
+        ImGui::Checkbox("Loop", &mLoopEmitterSet);
+        ImGui::SameLine();
+        if (ImGui::Button("Play"))
+            changeEftEmitterSet_();
+
+        if (ImGui::TreeNode("Emitter Sets"))
+        {
+            for (u32 i = 0; i < resource->GetNumEmitterSet(); i++)
+            {            
+                if (ImGui::TreeNode(resource->GetEmitterSetName(i)))
+                {
+                    const nw::eft::EmitterSetData* set_data = resource->GetEmitterSetData(i);
+                    u32 emitter_num = set_data->numEmitter;
+
+                    for (u32 j = 0; j < emitter_num; j++)
+                    {
+                        if (ImGui::TreeNode(resource->GetEmitterName(i, j)))
+                        {
+                            ImGui::TreePop();
+                        }
+                    }
+                    ImGui::TreePop();
+                }
+            }
+
+            ImGui::TreePop();
+        }
+    }
+    ImGui::End();
 }
 
 void Editor::resizeView_(s32 width, s32 height)
@@ -298,6 +318,8 @@ void Editor::prepare_()
     s32 height = rio::Window::instance()->getHeight();
 
     ImGuiUtil::initialize(width, height);
+    extern void setupImGuiStyle();
+    setupImGuiStyle();
 
     mViewSize.x = width;
     mViewSize.y = height;
@@ -350,7 +372,10 @@ void Editor::calc_()
 {
     ImGuiUtil::newFrame();
 
-    calcUi_();
+    calcViewUi_();
+    drawUiEmitterSelection_();
+    
+    ImGui::ShowDemoWindow();
 
     if (mViewResized)
     {
@@ -359,7 +384,6 @@ void Editor::calc_()
     }
 
     calcEftSystem_();
-    calcEftSystemNextEmitterSet_();
 }
 
 void Editor::exit_()
