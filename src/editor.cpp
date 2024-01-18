@@ -69,6 +69,7 @@ static inline bool DeInitEftSystem()
 
 Editor::Editor()
     : rio::ITask("NSMBU Editor")
+    , mPrevEmitterSet(0)
     , mCurrentEmitterSet(0)
     , mViewPos{ 0.0f, 0.0f }
     , mViewResized(false)
@@ -220,30 +221,252 @@ void Editor::drawUiEmitterSelection_()
         if (ImGui::Button("Play"))
             changeEftEmitterSet_();
 
-        if (ImGui::TreeNode("Emitter Sets"))
-        {
-            for (u32 i = 0; i < resource->GetNumEmitterSet(); i++)
-            {            
-                if (ImGui::TreeNode(resource->GetEmitterSetName(i)))
-                {
-                    const nw::eft::EmitterSetData* set_data = resource->GetEmitterSetData(i);
-                    u32 emitter_num = set_data->numEmitter;
-
-                    for (u32 j = 0; j < emitter_num; j++)
-                    {
-                        if (ImGui::TreeNode(resource->GetEmitterName(i, j)))
-                        {
-                            ImGui::TreePop();
-                        }
-                    }
-                    ImGui::TreePop();
-                }
+        for (u32 i = 0; i < resource->GetNumEmitterSet(); i++)
+        {            
+            // Use ImGui::Selectable instead of ImGui::TreeNode to make the node selectable
+            if (ImGui::Selectable(resource->GetEmitterSetName(i), mCurrentEmitterSet == i, ImGuiSelectableFlags_AllowDoubleClick))
+            {
+                // Set the selected index when the node is selected
+                mCurrentEmitterSet = i;
             }
 
-            ImGui::TreePop();
+            // If the node is selected or opened, display its content
+            if (ImGui::IsItemHovered() || ImGui::IsItemFocused())
+            {
+                // Display additional information or take action if the node is hovered or focused (optional)
+            }
+
+            // Use the selected index to determine whether to open the tree node
+            if (mCurrentEmitterSet == i && ImGui::TreeNode(resource->GetEmitterSetName(i)))
+            {
+                const nw::eft::EmitterSetData* set_data = resource->GetEmitterSetData(i);
+                u32 emitter_num = set_data->numEmitter;
+
+                for (u32 j = 0; j < emitter_num; j++)
+                {
+                    if (ImGui::TreeNode(resource->GetEmitterName(i, j)))
+                    {
+                        ImGui::TreePop();
+                    }
+                }
+
+                ImGui::TreePop();
+            }
         }
     }
     ImGui::End();
+
+    if (mCurrentEmitterSet != mPrevEmitterSet)
+    {
+        mPrevEmitterSet = mCurrentEmitterSet;
+        changeEftEmitterSet_();
+    }
+}
+
+void Editor::drawUiEmitterEdit_()
+{
+    if (ImGui::Begin("EmitterSet Edit"))
+    {
+        const nw::eft::Resource* resource = g_EftSystem->GetResource(0);
+        const nw::eft::EmitterSet* emitter_set = g_EftHandle.GetEmitterSet();
+
+        ImGui::Text("EmitterSet: %s", resource->GetEmitterSetName(mCurrentEmitterSet));
+        for (u32 i = 0; i < emitter_set->GetNumEmitter(); i++)
+        {
+            const nw::eft::CommonEmitterData* emitter = resource->GetEmitterData(emitter_set->GetEmitterSetID(), i);
+
+            // TODO: Rest of CommonEmitterData info
+            ImGui::Text("Flg: %u", emitter->flg);
+            ImGui::Text("RandomSeed: %u", emitter->randomSeed);
+            ImGui::Text("UserData1: %u", emitter->userData);
+            ImGui::Text("UserData2: %u", emitter->userData2);
+
+            for (u32 i = 0; i < nw::eft::EFT_USER_DATA_PARAM_MAX; i++)
+            {
+                ImGui::Text(("UserDataF" + std::to_string(i) + ": %f").c_str(), i);
+            }
+
+            ImGui::Text("UserCallbackID: %d", emitter->userCallbackID);
+            ImGui::Text("NamePos: %d", emitter->namePos);
+            ImGui::Text("Name: %s", emitter->name);
+
+            for (u32 i = 0; i < nw::eft::EFT_TEXTURE_SLOT_BIN_MAX; i++)
+            {
+            }
+            
+            switch (emitter->type)
+            {
+                case nw::eft::EFT_EMITTER_TYPE_SIMPLE:
+                {
+                    const nw::eft::SimpleEmitterData* simple_emitter = static_cast<const nw::eft::SimpleEmitterData*>(emitter);
+
+                    ImGui::Text("isPolygon: %1u", simple_emitter->isPolygon);
+                    ImGui::Text("isFollowAll: %1u", simple_emitter->isFollowAll);
+                    ImGui::Text("isEmitterBillboardMtx: %1u", simple_emitter->isEmitterBillboardMtx);
+                    ImGui::Text("isWorldGravity: %1u", simple_emitter->isWorldGravity);
+                    ImGui::Text("isDirectional: %1u", simple_emitter->isDirectional);
+                    ImGui::Text("isStopEmitInFade: %1u", simple_emitter->isStopEmitInFade);
+                    ImGui::Text("volumeTblIndex: %u", simple_emitter->volumeTblIndex);
+                    ImGui::Text("volumeSweepStartRandom: %u", simple_emitter->volumeSweepStartRandom);
+                    ImGui::Text("isDisplayParent: %1u", simple_emitter->isDisplayParent);
+                    ImGui::Text("emitDistEnabled: %1u", simple_emitter->emitDistEnabled);
+                    ImGui::Text("isVolumeLatitudeEnabled: %1u", simple_emitter->isVolumeLatitudeEnabled);
+                    ImGui::Text("ptclRotType: %u", simple_emitter->ptclRotType);
+                    ImGui::Text("ptclFollowType: %u", simple_emitter->ptclFollowType);
+                    ImGui::Text("colorCombinerType: %u", simple_emitter->colorCombinerType);
+                    ImGui::Text("alphaCombinerType: %u", simple_emitter->alphaCombinerType);
+                    ImGui::Text("drawPath: %d", simple_emitter->drawPath);
+                    ImGui::Text("displaySide: %u", simple_emitter->displaySide);
+                    ImGui::Text("dynamicsRandom: %f", simple_emitter->dynamicsRandom);
+                    ImGui::Text("transformSRT: %f, %f, %f", simple_emitter->transformSRT.m[0][0], simple_emitter->transformSRT.m[0][1], simple_emitter->transformSRT.m[0][2]);
+                    ImGui::Text("transformSRT: %f, %f, %f", simple_emitter->transformSRT.m[1][0], simple_emitter->transformSRT.m[1][1], simple_emitter->transformSRT.m[1][2]);
+                    ImGui::Text("transformSRT: %f, %f, %f", simple_emitter->transformSRT.m[2][0], simple_emitter->transformSRT.m[2][1], simple_emitter->transformSRT.m[2][2]);
+                    ImGui::Text("transformSRT: %f, %f, %f", simple_emitter->transformSRT.m[3][0], simple_emitter->transformSRT.m[3][1], simple_emitter->transformSRT.m[3][2]);
+                    ImGui::Text("transformRT: %f, %f, %f", simple_emitter->transformRT.m[0][0], simple_emitter->transformRT.m[0][1], simple_emitter->transformRT.m[0][2]);
+                    ImGui::Text("transformRT: %f, %f, %f", simple_emitter->transformRT.m[1][0], simple_emitter->transformRT.m[1][1], simple_emitter->transformRT.m[1][2]);
+                    ImGui::Text("transformRT: %f, %f, %f", simple_emitter->transformRT.m[2][0], simple_emitter->transformRT.m[2][1], simple_emitter->transformRT.m[2][2]);
+                    ImGui::Text("transformRT: %f, %f, %f", simple_emitter->transformRT.m[3][0], simple_emitter->transformRT.m[3][1], simple_emitter->transformRT.m[3][2]);
+                    ImGui::Text("scale: %f, %f, %f", simple_emitter->scale.x, simple_emitter->scale.y, simple_emitter->scale.z);
+                    ImGui::Text("rot: %f, %f, %f", simple_emitter->rot.x, simple_emitter->rot.y, simple_emitter->rot.z);
+                    ImGui::Text("trans: %f, %f, %f", simple_emitter->trans.x, simple_emitter->trans.y, simple_emitter->trans.z);
+                    ImGui::Text("rotRnd: %f, %f, %f", simple_emitter->rotRnd.x, simple_emitter->rotRnd.y, simple_emitter->rotRnd.z);
+                    ImGui::Text("transRnd: %f, %f, %f", simple_emitter->transRnd.x, simple_emitter->transRnd.y, simple_emitter->transRnd.z);
+                    ImGui::Text("blendType: %u", simple_emitter->blendType);
+                    ImGui::Text("zBufATestType: %u", simple_emitter->zBufATestType);
+                    ImGui::Text("volumeType: %u", simple_emitter->volumeType);
+                    ImGui::Text("volumeRadius: %f, %f, %f", simple_emitter->volumeRadius.x, simple_emitter->volumeRadius.y, simple_emitter->volumeRadius.z);
+                    ImGui::Text("volumeSweepStart: %d", simple_emitter->volumeSweepStart);
+                    ImGui::Text("volumeSweepParam: %u", simple_emitter->volumeSweepParam);
+                    ImGui::Text("volumeCaliber: %f", simple_emitter->volumeCaliber);
+                    ImGui::Text("volumeLatitude: %f", simple_emitter->volumeLatitude);
+                    ImGui::Text("volumeLatitudeDir: %f, %f, %f", simple_emitter->volumeLatitudeDir.x, simple_emitter->volumeLatitudeDir.y, simple_emitter->volumeLatitudeDir.z);
+                    ImGui::Text("lineCenter: %f", simple_emitter->lineCenter);
+                    ImGui::Text("formScale: %f, %f, %f", simple_emitter->formScale.x, simple_emitter->formScale.y, simple_emitter->formScale.z);
+                    ImGui::Text("color0: %f, %f, %f, %f", simple_emitter->color0.r, simple_emitter->color0.g, simple_emitter->color0.b, simple_emitter->color0.a);
+                    ImGui::Text("color1: %f, %f, %f, %f", simple_emitter->color1.r, simple_emitter->color1.g, simple_emitter->color1.b, simple_emitter->color1.a);
+                    ImGui::Text("alpha: %f", simple_emitter->alpha);
+                    ImGui::Text("emitDistUnit: %f", simple_emitter->emitDistUnit);
+                    ImGui::Text("emitDistMax: %f", simple_emitter->emitDistMax);
+                    ImGui::Text("emitDistMin: %f", simple_emitter->emitDistMin);
+                    ImGui::Text("emitDistMargin: %f", simple_emitter->emitDistMargin);
+                    ImGui::Text("emitRate: %f", simple_emitter->emitRate);
+                    ImGui::Text("startFrame: %d", simple_emitter->startFrame);
+                    ImGui::Text("endFrame: %d", simple_emitter->endFrame);
+                    ImGui::Text("lifeStep: %d", simple_emitter->lifeStep);
+                    ImGui::Text("lifeStepRnd: %d", simple_emitter->lifeStepRnd);
+                    ImGui::Text("figureVel: %f", simple_emitter->figureVel);
+                    ImGui::Text("emitterVel: %f", simple_emitter->emitterVel);
+                    ImGui::Text("initVelRnd: %f", simple_emitter->initVelRnd);
+                    ImGui::Text("emitterVelDir: %f, %f, %f", simple_emitter->emitterVelDir.x, simple_emitter->emitterVelDir.y, simple_emitter->emitterVelDir.z);
+                    ImGui::Text("emitterVelDirAngle: %f", simple_emitter->emitterVelDirAngle);
+                    ImGui::Text("spreadVec: %f, %f, %f", simple_emitter->spreadVec.x, simple_emitter->spreadVec.y, simple_emitter->spreadVec.z);
+                    ImGui::Text("airRegist: %f", simple_emitter->airRegist);
+                    ImGui::Text("gravity: %f, %f, %f", simple_emitter->gravity.x, simple_emitter->gravity.y, simple_emitter->gravity.z);
+                    ImGui::Text("xzDiffusionVel: %f", simple_emitter->xzDiffusionVel);
+                    ImGui::Text("initPosRand: %f", simple_emitter->initPosRand);
+                    ImGui::Text("ptclLife: %d", simple_emitter->ptclLife);
+                    ImGui::Text("ptclLifeRnd: %d", simple_emitter->ptclLifeRnd);
+                    ImGui::Text("meshType: %u", simple_emitter->meshType);
+                    ImGui::Text("billboardType: %u", simple_emitter->billboardType);
+                    ImGui::Text("rotBasis: %f, %f", simple_emitter->rotBasis.x, simple_emitter->rotBasis.y);
+                    ImGui::Text("toCameraOffset: %f", simple_emitter->toCameraOffset);
+                    for (u32 i = 0; i < nw::eft::EFT_TEXTURE_SLOT_BIN_MAX; i++)
+                    {
+                        const nw::eft::TextureEmitterData& texture_data = simple_emitter->textureData[i];
+
+                        ImGui::Text("isTexPatAnim: %1u", texture_data.isTexPatAnim);
+                        ImGui::Text("isTexPatAnimRand: %1u", texture_data.isTexPatAnimRand);
+                        ImGui::Text("isTexPatAnimClump: %1u", texture_data.isTexPatAnimClump);
+                        ImGui::Text("numTexDivX: %u", texture_data.numTexDivX);
+                        ImGui::Text("numTexDivY: %u", texture_data.numTexDivY);
+                        ImGui::Text("numTexPat: %u", texture_data.numTexPat);
+                        ImGui::Text("texPatFreq: %d", texture_data.texPatFreq);
+                        ImGui::Text("texPatTblUse: %d", texture_data.texPatTblUse);
+                        for (u32 i = 0; i < nw::eft::EFT_TEXTURE_PATTERN_NUM; i++)
+                        {
+                            ImGui::Text("texPatTbl[%u]: %u", i, texture_data.texPatTbl[i]);
+                        }
+                        ImGui::Text("texAddressingMode: %u", texture_data.texAddressingMode);
+                        ImGui::Text("texUScale: %f", texture_data.texUScale);
+                        ImGui::Text("texVScale: %f", texture_data.texVScale);
+                        ImGui::Text("uvShiftAnimMode: %u", texture_data.uvShiftAnimMode);
+                        ImGui::Text("uvScroll: %f, %f", texture_data.uvScroll.x, texture_data.uvScroll.y);
+                        ImGui::Text("uvScrollInit: %f, %f", texture_data.uvScrollInit.x, texture_data.uvScrollInit.y);
+                        ImGui::Text("uvScrollInitRand: %f, %f", texture_data.uvScrollInitRand.x, texture_data.uvScrollInitRand.y);
+                        ImGui::Text("uvScale: %f, %f", texture_data.uvScale.x, texture_data.uvScale.y);
+                        ImGui::Text("uvScaleInit: %f, %f", texture_data.uvScaleInit.x, texture_data.uvScaleInit.y);
+                        ImGui::Text("uvScaleInitRand: %f, %f", texture_data.uvScaleInitRand.x, texture_data.uvScaleInitRand.y);
+                        ImGui::Text("uvRot: %f", texture_data.uvRot);
+                        ImGui::Text("uvRotInit: %f", texture_data.uvRotInit);
+                        ImGui::Text("uvRotInitRand: %f", texture_data.uvRotInitRand);
+                    }
+                    for (u32 i = 0; i < nw::eft::EFT_COLOR_KIND_MAX; i++)
+                    {
+                        ImGui::Text("colorCalcType[%u]: %u", i, simple_emitter->colorCalcType[i]);
+                        ImGui::Text("color[%u][0]: %f, %f, %f, %f", i, simple_emitter->color[i][0].r, simple_emitter->color[i][0].g, simple_emitter->color[i][0].b, simple_emitter->color[i][0].a);
+                        ImGui::Text("color[%u][1]: %f, %f, %f, %f", i, simple_emitter->color[i][1].r, simple_emitter->color[i][1].g, simple_emitter->color[i][1].b, simple_emitter->color[i][1].a);
+                        ImGui::Text("color[%u][2]: %f, %f, %f, %f", i, simple_emitter->color[i][2].r, simple_emitter->color[i][2].g, simple_emitter->color[i][2].b, simple_emitter->color[i][2].a);
+                        ImGui::Text("colorSection1[%u]: %d", i, simple_emitter->colorSection1[i]);
+                        ImGui::Text("colorSection2[%u]: %d", i, simple_emitter->colorSection2[i]);
+                        ImGui::Text("colorSection3[%u]: %d", i, simple_emitter->colorSection3[i]);
+                        ImGui::Text("colorNumRepeat[%u]: %d", i, simple_emitter->colorNumRepeat[i]);
+                        ImGui::Text("colorRepeatStartRand[%u]: %d", i, simple_emitter->colorRepeatStartRand[i]);
+                    }
+                    ImGui::Text("colorScale: %f", simple_emitter->colorScale);
+                    ImGui::Text("initAlpha: %f", simple_emitter->initAlpha);
+                    ImGui::Text("diffAlpha21: %f", simple_emitter->diffAlpha21);
+                    ImGui::Text("diffAlpha32: %f", simple_emitter->diffAlpha32);
+                    ImGui::Text("alphaSection1: %d", simple_emitter->alphaSection1);
+                    ImGui::Text("alphaSection2: %d", simple_emitter->alphaSection2);
+                    ImGui::Text("texture1ColorBlend: %u", simple_emitter->texture1ColorBlend);
+                    ImGui::Text("primitiveColorBlend: %u", simple_emitter->primitiveColorBlend);
+                    ImGui::Text("texture1AlphaBlend: %u", simple_emitter->texture1AlphaBlend);
+                    ImGui::Text("primitiveAlphaBlend: %u", simple_emitter->primitiveAlphaBlend);
+                    ImGui::Text("scaleSection1: %d", simple_emitter->scaleSection1);
+                    ImGui::Text("scaleSection2: %d", simple_emitter->scaleSection2);
+                    ImGui::Text("scaleRand: %f", simple_emitter->scaleRand);
+                    ImGui::Text("baseScale: %f, %f", simple_emitter->baseScale.x, simple_emitter->baseScale.y);
+                    ImGui::Text("initScale: %f, %f", simple_emitter->initScale.x, simple_emitter->initScale.y);
+                    ImGui::Text("diffScale21: %f, %f", simple_emitter->diffScale21.x, simple_emitter->diffScale21.y);
+                    ImGui::Text("diffScale32: %f, %f", simple_emitter->diffScale32.x, simple_emitter->diffScale32.y);
+                    ImGui::Text("initRot: %f, %f, %f", simple_emitter->initRot.x, simple_emitter->initRot.y, simple_emitter->initRot.z);
+                    ImGui::Text("initRotRand: %f, %f, %f", simple_emitter->initRotRand.x, simple_emitter->initRotRand.y, simple_emitter->initRotRand.z);
+                    ImGui::Text("rotVel: %f, %f, %f", simple_emitter->rotVel.x, simple_emitter->rotVel.y, simple_emitter->rotVel.z);
+                    ImGui::Text("rotVelRand: %f, %f, %f", simple_emitter->rotVelRand.x, simple_emitter->rotVelRand.y, simple_emitter->rotVelRand.z);
+                    ImGui::Text("rotRegist: %f", simple_emitter->rotRegist);
+                    ImGui::Text("alphaAddInFade: %f", simple_emitter->alphaAddInFade);
+                    ImGui::Text("shaderType: %1u", simple_emitter->shaderType);
+                    ImGui::Text("userShaderSetting: %1u", simple_emitter->userShaderSetting);
+                    ImGui::Text("shaderUseSoftEdge: %1u", simple_emitter->shaderUseSoftEdge);
+                    ImGui::Text("shaderApplyAlphaToRefract: %1u", simple_emitter->shaderApplyAlphaToRefract);
+                    ImGui::Text("shaderParam0: %f", simple_emitter->shaderParam0);
+                    ImGui::Text("shaderParam1: %f", simple_emitter->shaderParam1);
+                    ImGui::Text("softFadeDistance: %f", simple_emitter->softFadeDistance);
+                    ImGui::Text("softVolumeParam: %f", simple_emitter->softVolumeParam);
+                    for (u32 i = 0; i < 16; i++)
+                    {
+                        ImGui::Text("userShaderDefine1[%u]: %1u", i, simple_emitter->userShaderDefine1[i]);
+                    }
+                    for (u32 i = 0; i < 16; i++)
+                    {
+                        ImGui::Text("userShaderDefine2[%u]: %1u", i, simple_emitter->userShaderDefine2[i]);
+                    }
+                    ImGui::Text("userShaderFlag: %u", simple_emitter->userShaderFlag);
+                    ImGui::Text("userShaderSwitchFlag: %u", simple_emitter->userShaderSwitchFlag);
+                    for (u32 i = 0; i < 32; i++)
+                    {
+                        ImGui::Text("userShaderParam[%u]: %f", i, simple_emitter->userShaderParam.param[i]);
+                    }
+
+                    break;
+                }
+            }
+
+            ImGui::Separator();
+        }
+    
+        ImGui::End();
+    }
 }
 
 void Editor::resizeView_(s32 width, s32 height)
@@ -374,8 +597,7 @@ void Editor::calc_()
 
     calcViewUi_();
     drawUiEmitterSelection_();
-    
-    ImGui::ShowDemoWindow();
+    drawUiEmitterEdit_();
 
     if (mViewResized)
     {

@@ -27,6 +27,7 @@ private:
 
     void calcViewUi_();
     void drawUiEmitterSelection_();
+    void drawUiEmitterEdit_();
 
     void bindViewRenderBuffer_();
     void unbindViewRenderBuffer_();
@@ -41,6 +42,7 @@ private:
     void calc_() override;
 
     u8*                     mPtclFile;
+    s32                     mPrevEmitterSet;
     s32                     mCurrentEmitterSet;
     bool                    mLoopEmitterSet;
     rio::BaseVec2f          mViewPos;
