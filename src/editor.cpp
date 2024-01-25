@@ -468,9 +468,8 @@ void Editor::drawUiEmitterEdit_()
 
             ImGui::Separator();
         }
-
-        ImGui::End();
     }
+    ImGui::End();
 }
 
 void Editor::resizeView_(s32 width, s32 height)
