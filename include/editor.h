@@ -42,8 +42,8 @@ private:
     void calc_() override;
 
     u8*                     mPtclFile;
-    s32                     mPrevEmitterSet;
-    s32                     mCurrentEmitterSet;
+    u32                     mPrevEmitterSet;
+    u32                     mCurrentEmitterSet;
     bool                    mLoopEmitterSet;
     rio::BaseVec2f          mViewPos;
     rio::BaseVec2i          mViewSize;

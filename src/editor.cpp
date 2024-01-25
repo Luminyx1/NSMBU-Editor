@@ -71,6 +71,7 @@ Editor::Editor()
     : rio::ITask("NSMBU Editor")
     , mPrevEmitterSet(0)
     , mCurrentEmitterSet(0)
+    , mLoopEmitterSet(false)
     , mViewPos{ 0.0f, 0.0f }
     , mViewResized(false)
     , mViewHovered(false)
@@ -96,10 +97,14 @@ void Editor::initEftSystem_()
 
     g_EftSystem->EntryResource(&g_EftRootHeap, mPtclFile, 0);
 
-    [[maybe_unused]] bool created = g_EftSystem->CreateEmitterSetID(&g_EftHandle, nw::math::MTX34::Identity(), 0);
+    [[maybe_unused]] bool created = g_EftSystem->CreateEmitterSetID(&g_EftHandle, nw::math::MTX34::Identity(), mCurrentEmitterSet);
     RIO_ASSERT(created);
 
-    RIO_LOG("Current EmitterSet: %s\n", g_EftSystem->GetResource(0)->GetEmitterSetName(g_EftHandle.GetEmitterSet()->GetEmitterSetID()));
+    rio::Matrix34f mtx;
+    mtx.makeS({ cScale * 1.5f, cScale * 1.5f, cScale });
+    g_EftHandle.GetEmitterSet()->SetMtx(reinterpret_cast<const nw::math::MTX34&>(mtx.a[0]));
+
+    RIO_LOG("Current EmitterSet: %s\n", g_EftSystem->GetResource(0)->GetEmitterSetName(mCurrentEmitterSet));
 }
 
 void Editor::calcEftSystem_()
@@ -113,9 +118,7 @@ void Editor::calcEftSystem_()
     // --------- All modifications happen here ---------
 
     if (mLoopEmitterSet && !g_EftHandle.GetEmitterSet()->IsAlive())
-    {
         changeEftEmitterSet_();
-    }
 
     // -------------------------------------------------
 
@@ -215,14 +218,15 @@ void Editor::drawUiEmitterSelection_()
     if (ImGui::Begin("EmitterSet Selection"))
     {
         nw::eft::Resource* resource = g_EftSystem->GetResource(0);
-        
+
         ImGui::Checkbox("Loop", &mLoopEmitterSet);
         ImGui::SameLine();
         if (ImGui::Button("Play"))
             changeEftEmitterSet_();
 
-        for (u32 i = 0; i < resource->GetNumEmitterSet(); i++)
-        {            
+        u32 emitter_set_num = resource->GetNumEmitterSet();
+        for (u32 i = 0; i < emitter_set_num; i++)
+        {
             // Use ImGui::Selectable instead of ImGui::TreeNode to make the node selectable
             if (ImGui::Selectable(resource->GetEmitterSetName(i), mCurrentEmitterSet == i, ImGuiSelectableFlags_AllowDoubleClick))
             {
@@ -293,7 +297,7 @@ void Editor::drawUiEmitterEdit_()
             for (u32 i = 0; i < nw::eft::EFT_TEXTURE_SLOT_BIN_MAX; i++)
             {
             }
-            
+
             switch (emitter->type)
             {
                 case nw::eft::EFT_EMITTER_TYPE_SIMPLE:
@@ -464,7 +468,7 @@ void Editor::drawUiEmitterEdit_()
 
             ImGui::Separator();
         }
-    
+
         ImGui::End();
     }
 }
@@ -585,10 +589,6 @@ void Editor::prepare_()
         layer->addDrawMethod(0, { this, &Editor::renderBackground });
         layer->setProjection(&mProjection);
     }
-
-    rio::Matrix34f mtx;
-    mtx.makeS({ cScale * 1.5f, cScale * 1.5f, cScale });
-    g_EftHandle.GetEmitterSet()->SetMtx(reinterpret_cast<const nw::math::MTX34&>(mtx.a[0]));
 }
 
 void Editor::calc_()
