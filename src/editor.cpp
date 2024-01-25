@@ -272,12 +272,12 @@ void Editor::drawUiEmitterEdit_()
     if (ImGui::Begin("EmitterSet Edit"))
     {
         const nw::eft::Resource* resource = g_EftSystem->GetResource(0);
-        const nw::eft::EmitterSet* emitter_set = g_EftHandle.GetEmitterSet();
+        u32 emitter_num = resource->GetNumEmitter(mCurrentEmitterSet);
 
         ImGui::Text("EmitterSet: %s", resource->GetEmitterSetName(mCurrentEmitterSet));
-        for (u32 i = 0; i < emitter_set->GetNumEmitter(); i++)
+        for (u32 i = 0; i < emitter_num; i++)
         {
-            const nw::eft::CommonEmitterData* emitter = resource->GetEmitterData(emitter_set->GetEmitterSetID(), i);
+            const nw::eft::CommonEmitterData* emitter = resource->GetEmitterData(mCurrentEmitterSet, i);
 
             // TODO: Rest of CommonEmitterData info
             ImGui::Text("Flg: %u", emitter->flg);
