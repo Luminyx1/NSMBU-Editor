@@ -227,12 +227,14 @@ void Editor::drawUiEmitterSelection_()
         u32 emitter_set_num = resource->GetNumEmitterSet();
         for (u32 i = 0; i < emitter_set_num; i++)
         {
-            // Use ImGui::Selectable instead of ImGui::TreeNode to make the node selectable
-            if (ImGui::Selectable(resource->GetEmitterSetName(i), mCurrentEmitterSet == i, ImGuiSelectableFlags_AllowDoubleClick))
-            {
-                // Set the selected index when the node is selected
+            const ImGuiTreeNodeFlags node_flags = ImGuiTreeNodeFlags_OpenOnArrow |
+                                                  ImGuiTreeNodeFlags_OpenOnDoubleClick |
+                                                 (ImGuiTreeNodeFlags_Selected * (mCurrentEmitterSet == i));
+            const bool node_open = ImGui::TreeNodeEx(resource->GetEmitterSetName(i), node_flags);
+
+            // Set the selected index when the node is selected
+            if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
                 mCurrentEmitterSet = i;
-            }
 
             // If the node is selected or opened, display its content
             if (ImGui::IsItemHovered() || ImGui::IsItemFocused())
@@ -240,8 +242,8 @@ void Editor::drawUiEmitterSelection_()
                 // Display additional information or take action if the node is hovered or focused (optional)
             }
 
-            // Use the selected index to determine whether to open the tree node
-            if (mCurrentEmitterSet == i && ImGui::TreeNode(resource->GetEmitterSetName(i)))
+            // Draw emitter tree if node is open
+            if (node_open)
             {
                 const nw::eft::EmitterSetData* set_data = resource->GetEmitterSetData(i);
                 u32 emitter_num = set_data->numEmitter;
